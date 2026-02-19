@@ -56,18 +56,57 @@ function hasScore(scores, pid, day, actionId) {
   return scores.some(s => s.participant_id === pid && s.day === day && s.action_id === actionId);
 }
 
+// ─── Export Excel (CSV compatibile con Power BI) ─────────────────────────────
+
+function exportToExcel(participants, teams, scores) {
+  const rows = [];
+  // Header
+  rows.push([
+    "Giocatore", "Team", "Capitano",
+    ...DAYS.flatMap(d => ALL_ACTIONS.map(a => `${d} — ${a.label.replace(/,/g, "")}`)),
+    ...DAYS.map(d => `Totale ${d}`),
+    "TOTALE GENERALE"
+  ]);
+
+  participants.forEach(p => {
+    const team = teams.find(t => t.id === p.team_id);
+    const dayScores = DAYS.map(d => calcDayScore(p.id, d, participants, scores));
+    const actionCols = DAYS.flatMap(d =>
+      ALL_ACTIONS.map(a => {
+        if (!hasScore(scores, p.id, d, a.id)) return 0;
+        return p.is_capitan ? a.points * 2 : a.points;
+      })
+    );
+    const total = calcParticipantScore(p.id, participants, scores);
+    rows.push([
+      p.name,
+      team?.name || "",
+      p.is_capitan ? "Sì" : "No",
+      ...actionCols,
+      ...dayScores,
+      total
+    ]);
+  });
+
+  const csv = rows.map(r => r.map(v => `"${v}"`).join(",")).join("\n");
+  const bom = "\uFEFF"; // BOM per Excel italiano
+  const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "fantasanremo_ntt_dati.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ─── Sfondo stellato ─────────────────────────────────────────────────────────
 
 function StarBg() {
   const [stars] = useState(() =>
     [...Array(60)].map(() => ({
-      w: Math.random() * 3 + 1,
-      top: Math.random() * 100,
-      left: Math.random() * 100,
-      opacity: Math.random() * 0.8 + 0.2,
-      dur: Math.random() * 3 + 2,
-      delay: Math.random() * 3,
-      hue: Math.random() * 60 + 280,
+      w: Math.random() * 3 + 1, top: Math.random() * 100, left: Math.random() * 100,
+      opacity: Math.random() * 0.8 + 0.2, dur: Math.random() * 3 + 2,
+      delay: Math.random() * 3, hue: Math.random() * 60 + 280,
     }))
   );
   return (
@@ -127,11 +166,11 @@ function LoginModal({ mode, onClose, onSuccess, teams }) {
   );
 }
 
-// ─── Classifica ──────────────────────────────────────────────────────────────
+// ─── Classifica individuale ───────────────────────────────────────────────────
 
 function ClassificaSection({ participants, teams, scores, sortedParticipants }) {
   const [expandedPid, setExpandedPid] = useState(null);
-  const [expandedDay, setExpandedDay]   = useState(null);
+  const [expandedDay, setExpandedDay] = useState(null);
 
   const togglePid = pid => { setExpandedPid(p => p===pid ? null : pid); setExpandedDay(null); };
   const toggleDay = (e, key) => { e.stopPropagation(); setExpandedDay(d => d===key ? null : key); };
@@ -152,15 +191,15 @@ function ClassificaSection({ participants, teams, scores, sortedParticipants }) 
 
         return (
           <div key={p.id} style={{ marginBottom:8 }}>
-            <div onClick={() => togglePid(p.id)} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", borderRadius: isOpen ? "12px 12px 0 0" : "12px", background: isOpen ? "rgba(255,255,255,.09)" : "rgba(255,255,255,.04)", border:`1px solid ${isOpen ? (team?.color||"rgba(255,255,255,.2)")+"88" : "rgba(255,255,255,.07)"}`, borderBottom: isOpen ? "none" : undefined, cursor:"pointer", userSelect:"none" }}>
-              <div style={{ width:36, height:36, borderRadius:"50%", background:rankBg, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize: i===0?18:14, color:rankColor, flexShrink:0 }}>{i===0?"👑":i+1}</div>
+            <div onClick={() => togglePid(p.id)} style={{ display:"flex", alignItems:"center", gap:14, padding:"14px 16px", borderRadius: isOpen?"12px 12px 0 0":"12px", background: isOpen?"rgba(255,255,255,.09)":"rgba(255,255,255,.04)", border:`1px solid ${isOpen?(team?.color||"rgba(255,255,255,.2)")+"88":"rgba(255,255,255,.07)"}`, borderBottom: isOpen?"none":undefined, cursor:"pointer", userSelect:"none" }}>
+              <div style={{ width:36, height:36, borderRadius:"50%", background:rankBg, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:i===0?18:14, color:rankColor, flexShrink:0 }}>{i===0?"👑":i+1}</div>
               <div style={{ width:6, height:40, borderRadius:3, background:team?.color||"#888", flexShrink:0 }} />
               <div style={{ flex:1 }}>
                 <div style={{ color:"white", fontWeight:600, fontFamily:"'DM Sans',sans-serif", fontSize:15 }}>{p.name}{p.is_capitan && <span style={{ fontSize:12, marginLeft:6 }}>👑</span>}</div>
                 <div style={{ color:"rgba(255,255,255,.4)", fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>{team?.name||"—"}</div>
               </div>
-              <div style={{ fontSize:24, fontWeight:900, fontFamily:"'Playfair Display',serif", color: score>0?"#2ed573":score<0?"#ff4757":"rgba(255,255,255,.4)" }}>{score>0?"+":""}{score}</div>
-              <div style={{ color:"rgba(255,255,255,.3)", fontSize:16, transition:"transform .25s", transform: isOpen?"rotate(180deg)":"rotate(0deg)", flexShrink:0 }}>▾</div>
+              <div style={{ fontSize:24, fontWeight:900, fontFamily:"'Playfair Display',serif", color:score>0?"#2ed573":score<0?"#ff4757":"rgba(255,255,255,.4)" }}>{score>0?"+":""}{score}</div>
+              <div style={{ color:"rgba(255,255,255,.3)", fontSize:16, transition:"transform .25s", transform:isOpen?"rotate(180deg)":"rotate(0deg)", flexShrink:0 }}>▾</div>
             </div>
 
             {isOpen && (
@@ -171,13 +210,13 @@ function ClassificaSection({ participants, teams, scores, sortedParticipants }) 
                   const isDayOpen  = expandedDay === `${p.id}_${day}`;
                   const hasSome    = dayActions.length > 0;
                   return (
-                    <div key={day} style={{ borderBottom: di<DAYS.length-1 ? "1px solid rgba(255,255,255,.06)" : "none" }}>
+                    <div key={day} style={{ borderBottom:di<DAYS.length-1?"1px solid rgba(255,255,255,.06)":"none" }}>
                       <div onClick={hasSome ? e => toggleDay(e, `${p.id}_${day}`) : undefined}
-                        style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 18px", cursor: hasSome?"pointer":"default", background: isDayOpen?"rgba(255,255,255,.05)":"transparent", userSelect:"none" }}>
-                        <div style={{ width:8, height:8, borderRadius:"50%", background: hasSome?(dayScore>=0?"#2ed573":"#ff4757"):"rgba(255,255,255,.15)", flexShrink:0 }} />
-                        <div style={{ flex:1, color: hasSome?"white":"rgba(255,255,255,.35)", fontFamily:"'DM Sans',sans-serif", fontSize:14, fontWeight: hasSome?500:400 }}>{day}</div>
-                        <div style={{ fontWeight:700, fontFamily:"'Playfair Display',serif", fontSize:16, color: dayScore>0?"#2ed573":dayScore<0?"#ff4757":"rgba(255,255,255,.25)" }}>{dayScore!==0?(dayScore>0?`+${dayScore}`:dayScore):"—"}</div>
-                        {hasSome && <div style={{ color:"rgba(255,255,255,.3)", fontSize:13, transition:"transform .2s", transform: isDayOpen?"rotate(180deg)":"rotate(0deg)" }}>▾</div>}
+                        style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 18px", cursor:hasSome?"pointer":"default", background:isDayOpen?"rgba(255,255,255,.05)":"transparent", userSelect:"none" }}>
+                        <div style={{ width:8, height:8, borderRadius:"50%", background:hasSome?(dayScore>=0?"#2ed573":"#ff4757"):"rgba(255,255,255,.15)", flexShrink:0 }} />
+                        <div style={{ flex:1, color:hasSome?"white":"rgba(255,255,255,.35)", fontFamily:"'DM Sans',sans-serif", fontSize:14, fontWeight:hasSome?500:400 }}>{day}</div>
+                        <div style={{ fontWeight:700, fontFamily:"'Playfair Display',serif", fontSize:16, color:dayScore>0?"#2ed573":dayScore<0?"#ff4757":"rgba(255,255,255,.25)" }}>{dayScore!==0?(dayScore>0?`+${dayScore}`:dayScore):"—"}</div>
+                        {hasSome && <div style={{ color:"rgba(255,255,255,.3)", fontSize:13, transition:"transform .2s", transform:isDayOpen?"rotate(180deg)":"rotate(0deg)" }}>▾</div>}
                       </div>
                       {isDayOpen && hasSome && (
                         <div style={{ padding:"4px 18px 12px 38px", display:"flex", flexDirection:"column", gap:6 }}>
@@ -185,10 +224,10 @@ function ClassificaSection({ participants, teams, scores, sortedParticipants }) 
                             const pts = p.is_capitan ? action.points*2 : action.points;
                             const isBonus = action.points > 0;
                             return (
-                              <div key={action.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, background: isBonus?"rgba(46,213,115,.08)":"rgba(255,71,87,.08)", border:`1px solid ${isBonus?"rgba(46,213,115,.2)":"rgba(255,71,87,.2)"}` }}>
-                                <div style={{ width:6, height:6, borderRadius:"50%", background: isBonus?"#2ed573":"#ff4757", flexShrink:0 }} />
+                              <div key={action.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, background:isBonus?"rgba(46,213,115,.08)":"rgba(255,71,87,.08)", border:`1px solid ${isBonus?"rgba(46,213,115,.2)":"rgba(255,71,87,.2)"}` }}>
+                                <div style={{ width:6, height:6, borderRadius:"50%", background:isBonus?"#2ed573":"#ff4757", flexShrink:0 }} />
                                 <span style={{ flex:1, color:"rgba(255,255,255,.8)", fontFamily:"'DM Sans',sans-serif", fontSize:13 }}>{action.label}</span>
-                                <span style={{ fontWeight:700, fontFamily:"'Playfair Display',serif", fontSize:14, color: isBonus?"#2ed573":"#ff4757", whiteSpace:"nowrap" }}>{pts>0?`+${pts}`:pts} pt{p.is_capitan?" ×2":""}</span>
+                                <span style={{ fontWeight:700, fontFamily:"'Playfair Display',serif", fontSize:14, color:isBonus?"#2ed573":"#ff4757", whiteSpace:"nowrap" }}>{pts>0?`+${pts}`:pts} pt{p.is_capitan?" ×2":""}</span>
                               </div>
                             );
                           })}
@@ -205,6 +244,348 @@ function ClassificaSection({ participants, teams, scores, sortedParticipants }) 
       {sortedParticipants.length === 0 && (
         <div style={{ textAlign:"center", color:"rgba(255,255,255,.3)", fontFamily:"'DM Sans',sans-serif", padding:"40px 0" }}>Nessun partecipante ancora.</div>
       )}
+    </div>
+  );
+}
+
+// ─── Classifica team (FIX ordinamento) ───────────────────────────────────────
+
+function TeamSection({ participants, teams, scores, sortedTeams }) {
+  return (
+    <div>
+      <div style={{ textAlign:"center", fontSize:28, marginBottom:6, color:"white", fontFamily:"'Playfair Display',serif", fontWeight:700 }}>👥 Classifica Team</div>
+      <div style={{ textAlign:"center", color:"rgba(255,255,255,.4)", fontFamily:"'DM Sans',sans-serif", fontSize:13, marginBottom:28 }}>Il punteggio del team è la somma di tutti i suoi componenti</div>
+
+      {/* Podio — usa sortedTeams già ordinato correttamente */}
+      {sortedTeams.length >= 2 && (
+        <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"center", gap:10, marginBottom:32 }}>
+          {/* Ordine visivo podio: 2°, 1°, 3° */}
+          {[1, 0, 2].map(rank => {
+            if (!sortedTeams[rank]) return null;
+            const team  = sortedTeams[rank];
+            const score = calcTeamScore(team.id, participants, scores);
+            const emojis  = ["🥈","🏆","🥉"];
+            const labels  = ["2° POSTO","1° POSTO","3° POSTO"];
+            const heights = [70, 100, 50];
+            const isFirst = rank === 0;
+            return (
+              <div key={team.id} style={{ textAlign:"center", flex:1, maxWidth:isFirst?220:190 }}>
+                <div style={{ fontSize:isFirst?36:26, marginBottom:6, animation:isFirst?"pulse 2s ease-in-out infinite":"none" }}>{emojis[rank]}</div>
+                <div style={{ background:`linear-gradient(180deg,${team.color}${isFirst?"55":"28"} 0%,rgba(255,255,255,.03) 100%)`, border:`${isFirst?2:1}px solid ${team.color}${isFirst?"":"55"}`, borderRadius:"12px 12px 0 0", padding:isFirst?"18px 14px":"14px 10px", borderBottom:"none", boxShadow:isFirst?`0 0 28px ${team.color}33`:"none" }}>
+                  <div style={{ fontSize:10, color:isFirst?"#f5a623":"rgba(255,255,255,.4)", fontFamily:"'DM Sans',sans-serif", marginBottom:4, letterSpacing:"0.1em" }}>{isFirst?"👑 ":""}{labels[rank]}</div>
+                  <div style={{ color:"white", fontWeight:isFirst?800:700, fontFamily:"'DM Sans',sans-serif", fontSize:isFirst?14:12, marginBottom:8 }}>{team.name}</div>
+                  <div style={{ fontSize:isFirst?28:22, fontWeight:900, color:score>=0?"#2ed573":"#ff4757", fontFamily:"'Playfair Display',serif" }}>{score>0?"+":""}{score}</div>
+                </div>
+                <div style={{ height:heights[rank], borderRadius:"0 0 8px 8px", border:`1px solid ${team.color}33`, borderTop:"none", background:isFirst?"rgba(255,215,0,.07)":"rgba(255,255,255,.03)" }} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Lista completa team */}
+      {sortedTeams.map((team, i) => {
+        const members   = [...participants.filter(p => p.team_id===team.id)].sort((a,b) => calcParticipantScore(b.id,participants,scores)-calcParticipantScore(a.id,participants,scores));
+        const teamScore = calcTeamScore(team.id, participants, scores);
+        const medals    = ["🥇","🥈","🥉"];
+        return (
+          <div key={team.id} className="card" style={{ marginBottom:14, borderColor:team.color+"55", borderWidth:i===0?2:1, boxShadow:i===0?`0 0 24px ${team.color}1a`:"none" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14, paddingBottom:14, borderBottom:`1px solid ${team.color}22` }}>
+              <div style={{ fontSize:i<3?26:18 }}>{i<3?medals[i]:`#${i+1}`}</div>
+              <div style={{ width:6, height:46, borderRadius:3, background:`linear-gradient(180deg,${team.color},${team.color}44)`, flexShrink:0 }} />
+              <div style={{ flex:1 }}>
+                <div style={{ color:"white", fontWeight:800, fontFamily:"'DM Sans',sans-serif", fontSize:16 }}>{team.name}</div>
+                <div style={{ color:"rgba(255,255,255,.4)", fontSize:12, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{members.length} partecipant{members.length===1?"e":"i"}</div>
+              </div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:28, fontWeight:900, color:teamScore>=0?"#2ed573":"#ff4757", fontFamily:"'Playfair Display',serif", lineHeight:1 }}>{teamScore>0?"+":""}{teamScore}</div>
+                <div style={{ fontSize:10, color:"rgba(255,255,255,.3)", fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>punti totali</div>
+              </div>
+            </div>
+            {members.length===0 ? (
+              <div style={{ color:"rgba(255,255,255,.3)", fontFamily:"'DM Sans',sans-serif", fontSize:13, textAlign:"center" }}>Nessun membro</div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {members.map((p, mi) => {
+                  const ps  = calcParticipantScore(p.id, participants, scores);
+                  const pct = Math.abs(teamScore)>0 ? Math.min(100, Math.abs(ps/Math.abs(teamScore))*100) : 0;
+                  return (
+                    <div key={p.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.06)" }}>
+                      <div style={{ width:22, height:22, borderRadius:"50%", background:mi===0?`linear-gradient(135deg,${team.color},${team.color}88)`:"rgba(255,255,255,.08)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, color:mi===0?"#0a0015":"rgba(255,255,255,.4)", fontWeight:700, flexShrink:0, fontFamily:"'DM Sans',sans-serif" }}>{mi+1}</div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
+                          <span style={{ color:"rgba(255,255,255,.85)", fontFamily:"'DM Sans',sans-serif", fontSize:13 }}>{p.is_capitan&&"👑 "}{p.name}</span>
+                          {p.is_capitan && <span style={{ fontSize:10, background:"rgba(245,166,35,.2)", border:"1px solid rgba(245,166,35,.4)", color:"#f5a623", borderRadius:4, padding:"1px 5px", fontFamily:"'DM Sans',sans-serif" }}>×2</span>}
+                        </div>
+                        <div style={{ height:3, borderRadius:2, background:"rgba(255,255,255,.08)", overflow:"hidden" }}>
+                          <div style={{ height:"100%", width:pct+"%", background:ps>=0?`linear-gradient(90deg,${team.color},#2ed573)`:"linear-gradient(90deg,#ff4757,#ff6b6b)", borderRadius:2, transition:"width .6s" }} />
+                        </div>
+                      </div>
+                      <div style={{ fontSize:14, fontWeight:700, color:ps>0?"#2ed573":ps<0?"#ff4757":"rgba(255,255,255,.4)", fontFamily:"'Playfair Display',serif", whiteSpace:"nowrap" }}>{ps>0?"+":""}{ps}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+
+function DashboardSection({ participants, teams, scores, exportToExcelFn }) {
+  // Dati per bar chart punti per giocatore
+  const playerData = [...participants]
+    .map(p => ({
+      name: p.name.split(" ")[0], // solo nome
+      fullName: p.name,
+      score: calcParticipantScore(p.id, participants, scores),
+      color: teams.find(t => t.id === p.team_id)?.color || "#888",
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const maxScore = Math.max(...playerData.map(d => Math.abs(d.score)), 1);
+
+  // Dati per line chart andamento giornaliero
+  const dayTotals = DAYS.map(day => {
+    const obj = { day: day.slice(0,3) };
+    teams.forEach(t => {
+      obj[t.name] = participants
+        .filter(p => p.team_id === t.id)
+        .reduce((sum, p) => sum + calcDayScore(p.id, day, participants, scores), 0);
+    });
+    return obj;
+  });
+
+  // Dati per donut bonus vs malus
+  let totalBonus = 0, totalMalus = 0;
+  scores.forEach(s => {
+    const action = ALL_ACTIONS.find(a => a.id === s.action_id);
+    if (!action) return;
+    const p = participants.find(x => x.id === s.participant_id);
+    const pts = Math.abs(p?.is_capitan ? action.points * 2 : action.points);
+    if (action.points > 0) totalBonus += pts;
+    else totalMalus += pts;
+  });
+  const totalBM = totalBonus + totalMalus || 1;
+  const bonusPct = Math.round((totalBonus / totalBM) * 100);
+  const malusPct = 100 - bonusPct;
+
+  // Donut SVG math
+  const r = 54, cx = 70, cy = 70, circ = 2 * Math.PI * r;
+  const bonusDash = (bonusPct / 100) * circ;
+  const malusDash = (malusPct / 100) * circ;
+
+  // Conteggio azioni più usate
+  const actionCounts = ALL_ACTIONS.map(a => ({
+    label: a.label.slice(0, 35) + (a.label.length > 35 ? "…" : ""),
+    shortLabel: a.label.slice(2, 22),
+    count: scores.filter(s => s.action_id === a.id).length,
+    isBonus: a.points > 0,
+  })).sort((a, b) => b.count - a.count);
+
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12, marginBottom:28 }}>
+        <div>
+          <div style={{ color:"white", fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:700 }}>📊 Dashboard</div>
+          <div style={{ color:"rgba(255,255,255,.4)", fontFamily:"'DM Sans',sans-serif", fontSize:13, marginTop:4 }}>Statistiche e analisi del torneo</div>
+        </div>
+        <button className="btn btn-primary" onClick={exportToExcelFn} style={{ display:"flex", alignItems:"center", gap:8 }}>
+          📥 Esporta Excel / Power BI
+        </button>
+      </div>
+
+      {/* KPI cards */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:14, marginBottom:24 }}>
+        {[
+          { icon:"👥", label:"Giocatori", value:participants.length },
+          { icon:"🏆", label:"Team", value:teams.length },
+          { icon:"✅", label:"Azioni totali", value:scores.length },
+          { icon:"🟢", label:"Bonus totali", value:scores.filter(s => BONUS_LIST.find(b => b.id===s.action_id)).length },
+          { icon:"🔴", label:"Malus totali", value:scores.filter(s => MALUS_LIST.find(m => m.id===s.action_id)).length },
+        ].map((k, i) => (
+          <div key={i} className="card" style={{ textAlign:"center", padding:"16px 12px" }}>
+            <div style={{ fontSize:28, marginBottom:6 }}>{k.icon}</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, fontWeight:900, color:"white" }}>{k.value}</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"rgba(255,255,255,.4)", marginTop:4 }}>{k.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Bar chart — punti per giocatore */}
+      <div className="card" style={{ marginBottom:20 }}>
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15, color:"white", marginBottom:20 }}>🏅 Punti per giocatore</div>
+        {playerData.length === 0 ? (
+          <div style={{ color:"rgba(255,255,255,.3)", textAlign:"center", fontFamily:"'DM Sans',sans-serif", fontSize:14, padding:"20px 0" }}>Nessun dato ancora</div>
+        ) : (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {playerData.map((d, i) => {
+              const pct = Math.abs(d.score) / maxScore * 100;
+              const isNeg = d.score < 0;
+              return (
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:12 }}>
+                  <div style={{ width:110, fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(255,255,255,.75)", textAlign:"right", flexShrink:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{d.fullName}</div>
+                  <div style={{ flex:1, height:28, background:"rgba(255,255,255,.05)", borderRadius:6, overflow:"hidden", position:"relative" }}>
+                    <div style={{ height:"100%", width:pct+"%", background:isNeg?"linear-gradient(90deg,#ff4757,#ff6b6b)":d.color ? `linear-gradient(90deg,${d.color},${d.color}aa)` : "linear-gradient(90deg,#ff6bc1,#f5a623)", borderRadius:6, transition:"width .8s ease", display:"flex", alignItems:"center", justifyContent:"flex-end", paddingRight:8 }}>
+                      <span style={{ fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:13, color:"white", whiteSpace:"nowrap" }}>{d.score>0?"+":""}{d.score}</span>
+                    </div>
+                    {pct < 20 && (
+                      <span style={{ position:"absolute", left: pct+"%", top:"50%", transform:"translateY(-50%)", marginLeft:8, fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:13, color:isNeg?"#ff4757":"#2ed573", whiteSpace:"nowrap" }}>{d.score>0?"+":""}{d.score}</span>
+                    )}
+                  </div>
+                  <div style={{ width:28, height:28, borderRadius:"50%", background:`${d.color}33`, border:`2px solid ${d.color}`, flexShrink:0 }} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Line chart — andamento giornaliero team */}
+      <div className="card" style={{ marginBottom:20 }}>
+        <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15, color:"white", marginBottom:20 }}>📈 Andamento punti per giornata</div>
+        {scores.length === 0 ? (
+          <div style={{ color:"rgba(255,255,255,.3)", textAlign:"center", fontFamily:"'DM Sans',sans-serif", fontSize:14, padding:"20px 0" }}>Nessun dato ancora</div>
+        ) : (() => {
+          const W = 560, H = 180, padL = 36, padR = 16, padT = 16, padB = 28;
+          const innerW = W - padL - padR;
+          const innerH = H - padT - padB;
+          const allVals = dayTotals.flatMap(d => teams.map(t => d[t.name] || 0));
+          const minV = Math.min(0, ...allVals);
+          const maxV = Math.max(1, ...allVals);
+          const xStep = innerW / (DAYS.length - 1);
+          const yScale = v => padT + innerH - ((v - minV) / (maxV - minV)) * innerH;
+          const xScale = i => padL + i * xStep;
+
+          return (
+            <div style={{ overflowX:"auto" }}>
+              <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", maxWidth:W, display:"block", margin:"0 auto" }}>
+                {/* Griglia */}
+                {[0,0.25,0.5,0.75,1].map((f, i) => {
+                  const y = padT + innerH * (1-f);
+                  const v = Math.round(minV + (maxV-minV)*f);
+                  return (
+                    <g key={i}>
+                      <line x1={padL} x2={W-padR} y1={y} y2={y} stroke="rgba(255,255,255,.07)" strokeWidth="1"/>
+                      <text x={padL-4} y={y+4} textAnchor="end" fontSize="9" fill="rgba(255,255,255,.3)">{v}</text>
+                    </g>
+                  );
+                })}
+                {/* Zero line */}
+                {minV < 0 && (
+                  <line x1={padL} x2={W-padR} y1={yScale(0)} y2={yScale(0)} stroke="rgba(255,255,255,.2)" strokeWidth="1" strokeDasharray="4,3"/>
+                )}
+                {/* Linee per ogni team */}
+                {teams.map(team => {
+                  const pts = dayTotals.map((d, i) => ({ x:xScale(i), y:yScale(d[team.name]||0), v:d[team.name]||0 }));
+                  const path = pts.map((p,i) => `${i===0?"M":"L"}${p.x},${p.y}`).join(" ");
+                  return (
+                    <g key={team.id}>
+                      <path d={path} fill="none" stroke={team.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      {pts.map((p, i) => (
+                        <g key={i}>
+                          <circle cx={p.x} cy={p.y} r="4" fill={team.color} stroke="#0a0015" strokeWidth="2"/>
+                          {p.v !== 0 && <text x={p.x} y={p.y-10} textAnchor="middle" fontSize="9" fill={team.color} fontWeight="bold">{p.v>0?"+":""}{p.v}</text>}
+                        </g>
+                      ))}
+                    </g>
+                  );
+                })}
+                {/* Etichette asse X */}
+                {DAYS.map((d, i) => (
+                  <text key={i} x={xScale(i)} y={H-6} textAnchor="middle" fontSize="10" fill="rgba(255,255,255,.4)">{d.slice(0,3)}</text>
+                ))}
+              </svg>
+              {/* Legenda */}
+              <div style={{ display:"flex", gap:16, justifyContent:"center", flexWrap:"wrap", marginTop:12 }}>
+                {teams.map(t => (
+                  <div key={t.id} style={{ display:"flex", alignItems:"center", gap:6, fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"rgba(255,255,255,.6)" }}>
+                    <div style={{ width:16, height:3, borderRadius:2, background:t.color }} />
+                    {t.name}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* Bonus vs Malus */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:20 }}>
+
+        {/* Donut */}
+        <div className="card">
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15, color:"white", marginBottom:16 }}>🟢🔴 Bonus vs Malus</div>
+          {scores.length === 0 ? (
+            <div style={{ color:"rgba(255,255,255,.3)", textAlign:"center", fontFamily:"'DM Sans',sans-serif", fontSize:14, padding:"20px 0" }}>Nessun dato ancora</div>
+          ) : (
+            <div style={{ display:"flex", alignItems:"center", gap:24, justifyContent:"center" }}>
+              <svg viewBox="0 0 140 140" style={{ width:130, height:130, flexShrink:0 }}>
+                <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth="16"/>
+                {/* Malus */}
+                <circle cx={cx} cy={cy} r={r} fill="none" stroke="#ff4757" strokeWidth="16"
+                  strokeDasharray={`${malusDash} ${circ}`}
+                  strokeDashoffset={-bonusDash}
+                  strokeLinecap="round"
+                  style={{ transform:"rotate(-90deg)", transformOrigin:`${cx}px ${cy}px` }}/>
+                {/* Bonus */}
+                <circle cx={cx} cy={cy} r={r} fill="none" stroke="#2ed573" strokeWidth="16"
+                  strokeDasharray={`${bonusDash} ${circ}`}
+                  strokeLinecap="round"
+                  style={{ transform:"rotate(-90deg)", transformOrigin:`${cx}px ${cy}px` }}/>
+                <text x={cx} y={cy-6} textAnchor="middle" fontSize="18" fontWeight="bold" fill="white">{totalBonus+totalMalus}</text>
+                <text x={cx} y={cy+12} textAnchor="middle" fontSize="9" fill="rgba(255,255,255,.4)">azioni tot.</text>
+              </svg>
+              <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                    <div style={{ width:12, height:12, borderRadius:3, background:"#2ed573" }} />
+                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(255,255,255,.7)" }}>Bonus</span>
+                  </div>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:900, color:"#2ed573" }}>{bonusPct}%</div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(255,255,255,.35)" }}>{scores.filter(s => BONUS_LIST.find(b => b.id===s.action_id)).length} occorrenze</div>
+                </div>
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                    <div style={{ width:12, height:12, borderRadius:3, background:"#ff4757" }} />
+                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(255,255,255,.7)" }}>Malus</span>
+                  </div>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:900, color:"#ff4757" }}>{malusPct}%</div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(255,255,255,.35)" }}>{scores.filter(s => MALUS_LIST.find(m => m.id===s.action_id)).length} occorrenze</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Azioni più usate */}
+        <div className="card">
+          <div style={{ fontFamily:"'DM Sans',sans-serif", fontWeight:700, fontSize:15, color:"white", marginBottom:16 }}>🎯 Azioni più frequenti</div>
+          {actionCounts.every(a => a.count === 0) ? (
+            <div style={{ color:"rgba(255,255,255,.3)", textAlign:"center", fontFamily:"'DM Sans',sans-serif", fontSize:14, padding:"20px 0" }}>Nessun dato ancora</div>
+          ) : (
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {actionCounts.filter(a => a.count > 0).map((a, i) => {
+                const maxC = actionCounts[0].count || 1;
+                return (
+                  <div key={i} style={{ display:"flex", alignItems:"center", gap:10 }}>
+                    <div style={{ width:8, height:8, borderRadius:2, background:a.isBonus?"#2ed573":"#ff4757", flexShrink:0 }} />
+                    <div style={{ flex:1, fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"rgba(255,255,255,.65)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{a.label}</div>
+                    <div style={{ width:60, height:8, background:"rgba(255,255,255,.06)", borderRadius:4, overflow:"hidden", flexShrink:0 }}>
+                      <div style={{ height:"100%", width:(a.count/maxC*100)+"%", background:a.isBonus?"#2ed573":"#ff4757", borderRadius:4 }} />
+                    </div>
+                    <div style={{ width:18, fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:700, color:"rgba(255,255,255,.6)", textAlign:"right", flexShrink:0 }}>{a.count}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -229,16 +610,14 @@ function ScoringPanel({ participants, teams, scores, toggleScore, allowedTeamId,
       <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:20 }}>
         {DAYS.map(d => <button key={d} className={`day-btn ${selectedDay===d?"active":""}`} onClick={() => setSelectedDay(d)}>{d}</button>)}
       </div>
-
       <div className="label">Partecipante</div>
       <select className="inp" value={selPid} onChange={e => setSelPid(e.target.value)} style={{ marginBottom:16 }}>
         {visible.map(p => (
           <option key={p.id} value={p.id} style={{ background:"#1a0030" }}>
-            {p.is_capitan ? "👑 " : ""}{p.name} — {calcParticipantScore(p.id, participants, scores)>0?"+":""}{calcParticipantScore(p.id, participants, scores)} pt
+            {p.is_capitan?"👑 ":""}{p.name} — {calcParticipantScore(p.id,participants,scores)>0?"+":""}{calcParticipantScore(p.id,participants,scores)} pt
           </option>
         ))}
       </select>
-
       {current && (
         <>
           <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20, padding:"10px 14px", borderRadius:10, background:`${team?.color||"#888"}18`, border:`1px solid ${team?.color||"#888"}44` }}>
@@ -247,15 +626,14 @@ function ScoringPanel({ participants, teams, scores, toggleScore, allowedTeamId,
               <div style={{ color:"white", fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>{current.is_capitan?"👑 ":""}{current.name}</div>
               <div style={{ color:"rgba(255,255,255,.4)", fontFamily:"'DM Sans',sans-serif", fontSize:12 }}>{team?.name}{current.is_capitan?" · punti doppi":""} · {selectedDay}</div>
             </div>
-            <div style={{ fontSize:22, fontWeight:900, fontFamily:"'Playfair Display',serif", color: ps>=0?"#2ed573":"#ff4757" }}>{ps>0?"+":""}{ps}</div>
+            <div style={{ fontSize:22, fontWeight:900, fontFamily:"'Playfair Display',serif", color:ps>=0?"#2ed573":"#ff4757" }}>{ps>0?"+":""}{ps}</div>
           </div>
-
           <div style={{ color:"#2ed573", fontFamily:"'DM Sans',sans-serif", fontSize:12, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8 }}>🟢 Bonus</div>
           {BONUS_LIST.map(action => {
             const active = hasScore(scores, current.id, selectedDay, action.id);
             const pts    = current.is_capitan ? action.points*2 : action.points;
             return (
-              <button key={action.id} className={`action-toggle ${active?"active-bonus":"inactive"}`} style={{ marginBottom:8, width:"100%", opacity: loading?"0.5":"1" }}
+              <button key={action.id} className={`action-toggle ${active?"active-bonus":"inactive"}`} style={{ marginBottom:8, width:"100%", opacity:loading?"0.5":"1" }}
                 onClick={() => !loading && toggleScore(current.id, selectedDay, action.id)}>
                 <span style={{ fontSize:18 }}>{active?"✅":"⬜"}</span>
                 <span style={{ flex:1 }}>{action.label}</span>
@@ -263,13 +641,12 @@ function ScoringPanel({ participants, teams, scores, toggleScore, allowedTeamId,
               </button>
             );
           })}
-
           <div style={{ color:"#ff4757", fontFamily:"'DM Sans',sans-serif", fontSize:12, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:8, marginTop:18 }}>🔴 Malus</div>
           {MALUS_LIST.map(action => {
             const active = hasScore(scores, current.id, selectedDay, action.id);
             const pts    = current.is_capitan ? action.points*2 : action.points;
             return (
-              <button key={action.id} className={`action-toggle ${active?"active-malus":"inactive"}`} style={{ marginBottom:8, width:"100%", opacity: loading?"0.5":"1" }}
+              <button key={action.id} className={`action-toggle ${active?"active-malus":"inactive"}`} style={{ marginBottom:8, width:"100%", opacity:loading?"0.5":"1" }}
                 onClick={() => !loading && toggleScore(current.id, selectedDay, action.id)}>
                 <span style={{ fontSize:18 }}>{active?"✅":"⬜"}</span>
                 <span style={{ flex:1 }}>{action.label}</span>
@@ -285,8 +662,8 @@ function ScoringPanel({ participants, teams, scores, toggleScore, allowedTeamId,
 
 // ─── Admin panel ─────────────────────────────────────────────────────────────
 
-function AdminPanel({ participants, teams, scores, toggleScore, reload, selectedDay, setSelectedDay, loading }) {
-  const [tab, setTab] = useState("punteggi");
+function AdminPanel({ participants, teams, scores, toggleScore, reload, selectedDay, setSelectedDay, loading, exportToExcelFn }) {
+  const [tab, setTab]                   = useState("punteggi");
   const [newName, setNewName]           = useState("");
   const [newTeamId, setNewTeamId]       = useState(teams[0]?.id || "");
   const [newIsCapitan, setNewIsCapitan] = useState(false);
@@ -294,7 +671,7 @@ function AdminPanel({ participants, teams, scores, toggleScore, reload, selected
   const [newTeamColor, setNewTeamColor] = useState("#ff6bc1");
   const [teamPasswords, setTeamPasswords] = useState({});
   const [savedFeedback, setSavedFeedback] = useState({});
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy]                 = useState(false);
 
   useEffect(() => {
     setTeamPasswords(Object.fromEntries(teams.map(t => [t.id, t.password || ""])));
@@ -303,52 +680,43 @@ function AdminPanel({ participants, teams, scores, toggleScore, reload, selected
   const addParticipant = async () => {
     if (!newName.trim()) return;
     setBusy(true);
-    const id = "p" + Date.now();
-    await supabase.from("participants").insert({ id, name: newName.trim(), team_id: newTeamId, is_capitan: newIsCapitan });
+    await supabase.from("participants").insert({ id:"p"+Date.now(), name:newName.trim(), team_id:newTeamId, is_capitan:newIsCapitan });
     setNewName(""); setNewIsCapitan(false);
-    await reload();
-    setBusy(false);
+    await reload(); setBusy(false);
   };
 
-  const removeParticipant = async (pid) => {
+  const removeParticipant = async pid => {
     setBusy(true);
     await supabase.from("participants").delete().eq("id", pid);
-    await reload();
-    setBusy(false);
+    await reload(); setBusy(false);
   };
 
   const addTeam = async () => {
     if (!newTeamName.trim()) return;
     setBusy(true);
-    const id = "t" + Date.now();
-    await supabase.from("teams").insert({ id, name: newTeamName.trim(), color: newTeamColor, password: "" });
-    setNewTeamName("");
-    await reload();
-    setBusy(false);
+    await supabase.from("teams").insert({ id:"t"+Date.now(), name:newTeamName.trim(), color:newTeamColor, password:"" });
+    setNewTeamName(""); await reload(); setBusy(false);
   };
 
-  const removeTeam = async (tid) => {
+  const removeTeam = async tid => {
     setBusy(true);
     await supabase.from("teams").delete().eq("id", tid);
-    await reload();
-    setBusy(false);
+    await reload(); setBusy(false);
   };
 
-  const updateTeamPassword = async (teamId) => {
+  const updateTeamPassword = async teamId => {
     setBusy(true);
-    await supabase.from("teams").update({ password: teamPasswords[teamId] || "" }).eq("id", teamId);
-    setSavedFeedback(p => ({ ...p, [teamId]: true }));
-    setTimeout(() => setSavedFeedback(p => ({ ...p, [teamId]: false })), 2000);
-    await reload();
-    setBusy(false);
+    await supabase.from("teams").update({ password:teamPasswords[teamId]||"" }).eq("id", teamId);
+    setSavedFeedback(p => ({ ...p, [teamId]:true }));
+    setTimeout(() => setSavedFeedback(p => ({ ...p, [teamId]:false })), 2000);
+    await reload(); setBusy(false);
   };
 
-  const resetAll = async () => {
+  const resetScores = async () => {
     if (!window.confirm("⚠️ Cancelli TUTTI i punteggi. Continuare?")) return;
     setBusy(true);
     await supabase.from("scores").delete().neq("id", 0);
-    await reload();
-    setBusy(false);
+    await reload(); setBusy(false);
   };
 
   const tabs = [
@@ -364,9 +732,8 @@ function AdminPanel({ participants, teams, scores, toggleScore, reload, selected
         <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:"rgba(255,107,193,.12)", border:"1px solid rgba(255,107,193,.35)", borderRadius:20, padding:"6px 18px", fontFamily:"'DM Sans',sans-serif", fontSize:14, color:"#ff6bc1" }}>
           🔐 Super Admin — accesso completo
         </div>
-        <button className="btn btn-danger" style={{ fontSize:12, padding:"6px 14px" }} onClick={resetAll} disabled={busy}>
-          🗑️ Reset punteggi
-        </button>
+        <button className="btn btn-primary" onClick={exportToExcelFn} style={{ fontSize:12, padding:"6px 14px" }}>📥 Esporta Excel</button>
+        <button className="btn btn-danger"  onClick={resetScores} disabled={busy} style={{ fontSize:12, padding:"6px 14px" }}>🗑️ Reset punteggi</button>
       </div>
 
       <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:24 }}>
@@ -405,7 +772,7 @@ function AdminPanel({ participants, teams, scores, toggleScore, reload, selected
                   <div style={{ color:"white", fontFamily:"'DM Sans',sans-serif", fontSize:14 }}>{p.is_capitan?"👑 ":""}{p.name}</div>
                   <div style={{ color:"rgba(255,255,255,.4)", fontFamily:"'DM Sans',sans-serif", fontSize:12 }}>{team?.name}</div>
                 </div>
-                <div style={{ color: ps>=0?"#2ed573":"#ff4757", fontWeight:700, fontFamily:"'Playfair Display',serif", fontSize:16 }}>{ps>0?"+":""}{ps}</div>
+                <div style={{ color:ps>=0?"#2ed573":"#ff4757", fontWeight:700, fontFamily:"'Playfair Display',serif", fontSize:16 }}>{ps>0?"+":""}{ps}</div>
                 <button className="btn btn-danger" style={{ padding:"6px 12px", fontSize:12 }} onClick={() => removeParticipant(p.id)} disabled={busy}>✕</button>
               </div>
             );
@@ -424,10 +791,10 @@ function AdminPanel({ participants, teams, scores, toggleScore, reload, selected
             <button className="btn btn-primary" style={{ marginTop:10 }} onClick={addTeam} disabled={busy}>Crea Team</button>
           </div>
           {teams.map(team => {
-            const members = participants.filter(p => p.team_id === team.id);
+            const members = participants.filter(p => p.team_id===team.id);
             return (
               <div key={team.id} style={{ padding:14, borderRadius:12, background:"rgba(255,255,255,.04)", border:`1px solid ${team.color}33`, marginBottom:10 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom: members.length?10:0 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:members.length?10:0 }}>
                   <div style={{ width:14, height:14, borderRadius:"50%", background:team.color, flexShrink:0 }} />
                   <div style={{ color:"white", fontFamily:"'DM Sans',sans-serif", fontWeight:600, flex:1 }}>{team.name}</div>
                   <div style={{ color:"rgba(255,255,255,.4)", fontFamily:"'DM Sans',sans-serif", fontSize:12 }}>{members.length} membri</div>
@@ -465,11 +832,11 @@ function AdminPanel({ participants, teams, scores, toggleScore, reload, selected
                 </div>
                 <div style={{ display:"flex", gap:10 }}>
                   <input className="inp" type="text" placeholder="Password capitano..." value={teamPasswords[team.id]||""}
-                    onChange={e => setTeamPasswords(p => ({ ...p, [team.id]: e.target.value }))}
+                    onChange={e => setTeamPasswords(p => ({ ...p, [team.id]:e.target.value }))}
                     onKeyDown={e => e.key==="Enter" && updateTeamPassword(team.id)}
                     style={{ flex:1 }} />
                   <button className="btn btn-primary" onClick={() => updateTeamPassword(team.id)} disabled={busy} style={{ whiteSpace:"nowrap" }}>
-                    {saved ? "✅ Salvata" : "Salva"}
+                    {saved?"✅ Salvata":"Salva"}
                   </button>
                 </div>
                 {team.password && !saved && <div style={{ marginTop:8, fontSize:12, color:"#2ed573", fontFamily:"'DM Sans',sans-serif" }}>✅ Password attiva</div>}
@@ -485,21 +852,20 @@ function AdminPanel({ participants, teams, scores, toggleScore, reload, selected
 // ─── App principale ───────────────────────────────────────────────────────────
 
 export default function App() {
-  const [page, setPage]               = useState("classifica");
-  const [isAdmin, setIsAdmin]         = useState(false);
+  const [page, setPage]                     = useState("classifica");
+  const [isAdmin, setIsAdmin]               = useState(false);
   const [capitanoTeamId, setCapitanoTeamId] = useState(null);
-  const [showLogin, setShowLogin]     = useState(false);
-  const [loginMode, setLoginMode]     = useState("capitano");
+  const [showLogin, setShowLogin]           = useState(false);
+  const [loginMode, setLoginMode]           = useState("capitano");
+  const [teams, setTeams]                   = useState([]);
+  const [participants, setParticipants]     = useState([]);
+  const [scores, setScores]                 = useState([]);
+  const [loadingData, setLoadingData]       = useState(true);
+  const [scoreLoading, setScoreLoading]     = useState(false);
+  const [selectedDay, setSelectedDay]       = useState("Lunedì");
 
-  const [teams, setTeams]               = useState([]);
-  const [participants, setParticipants] = useState([]);
-  const [scores, setScores]             = useState([]);
-  const [loadingData, setLoadingData]   = useState(true);
-  const [scoreLoading, setScoreLoading] = useState(false);
-
-  // ── Fetch da Supabase ──
   const reload = useCallback(async () => {
-    const [{ data: t }, { data: p }, { data: s }] = await Promise.all([
+    const [{ data:t }, { data:p }, { data:s }] = await Promise.all([
       supabase.from("teams").select("*"),
       supabase.from("participants").select("*"),
       supabase.from("scores").select("*"),
@@ -512,24 +878,18 @@ export default function App() {
 
   useEffect(() => { reload(); }, [reload]);
 
-  // Realtime: aggiorna classifica se qualcun altro cambia i punteggi
   useEffect(() => {
-    const channel = supabase
-      .channel("scores-realtime")
+    const ch = supabase.channel("scores-rt")
       .on("postgres_changes", { event:"*", schema:"public", table:"scores" }, () => reload())
       .subscribe();
-    return () => supabase.removeChannel(channel);
+    return () => supabase.removeChannel(ch);
   }, [reload]);
 
-  // ── Toggle punteggio ──
   const toggleScore = async (pid, day, actionId) => {
     setScoreLoading(true);
     const existing = scores.find(s => s.participant_id===pid && s.day===day && s.action_id===actionId);
-    if (existing) {
-      await supabase.from("scores").delete().eq("id", existing.id);
-    } else {
-      await supabase.from("scores").insert({ participant_id: pid, day, action_id: actionId });
-    }
+    if (existing) await supabase.from("scores").delete().eq("id", existing.id);
+    else await supabase.from("scores").insert({ participant_id:pid, day, action_id:actionId });
     await reload();
     setScoreLoading(false);
   };
@@ -542,27 +902,27 @@ export default function App() {
 
   const handleLogout = () => { setIsAdmin(false); setCapitanoTeamId(null); setPage("classifica"); };
 
-  const [selectedDay, setSelectedDay] = useState("Lunedì");
+  const exportFn = () => exportToExcel(participants, teams, scores);
 
+  // ── Ordinamento corretto: sort per punteggio totale decrescente ──
   const sortedParticipants = [...participants].sort((a,b) => calcParticipantScore(b.id,participants,scores) - calcParticipantScore(a.id,participants,scores));
   const sortedTeams        = [...teams].sort((a,b) => calcTeamScore(b.id,participants,scores) - calcTeamScore(a.id,participants,scores));
   const capitanoTeam       = teams.find(t => t.id===capitanoTeamId);
 
   const navItems = [
-    { id:"classifica", label:"🏆 Classifica" },
-    { id:"team",       label:"👥 Team" },
-    { id:"regolamento",label:"📋 Regolamento" },
+    { id:"classifica",  label:"🏆 Classifica" },
+    { id:"team",        label:"👥 Team" },
+    { id:"dashboard",   label:"📊 Dashboard" },
+    { id:"regolamento", label:"📋 Regolamento" },
     ...(capitanoTeamId ? [{ id:"capitano", label:"👑 Il mio team", special:"capitan" }] : []),
     ...(isAdmin        ? [{ id:"admin",    label:"🔐 Super Admin", special:"admin"   }] : []),
   ];
 
-  // ── CSS globale ──
   const css = `
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@300;400;500;600&display=swap');
     *{box-sizing:border-box;margin:0;padding:0}
     @keyframes twinkle{from{opacity:.2;transform:scale(.8)}to{opacity:1;transform:scale(1.2)}}
     @keyframes glow{0%,100%{text-shadow:0 0 20px #ff6bc1,0 0 40px #ff6bc1}50%{text-shadow:0 0 40px #ff6bc1,0 0 80px #f5a623}}
-    @keyframes slideIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
     @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
     @keyframes spin{to{transform:rotate(360deg)}}
     .nav-btn{background:none;border:2px solid rgba(255,255,255,.2);color:rgba(255,255,255,.7);padding:8px 18px;border-radius:30px;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;transition:all .3s;letter-spacing:.04em}
@@ -595,7 +955,6 @@ export default function App() {
     .spinner{width:40px;height:40px;border:3px solid rgba(255,107,193,.2);border-top-color:#ff6bc1;border-radius:50%;animation:spin 0.8s linear infinite}
   `;
 
-  // ── Loading screen ──
   if (loadingData) return (
     <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"linear-gradient(135deg,#0a0015,#1a0030)" }}>
       <style>{css}</style>
@@ -612,15 +971,13 @@ export default function App() {
       <style>{css}</style>
       <StarBg />
 
-      {/* Header */}
       <div style={{ position:"relative", zIndex:1, textAlign:"center", padding:"32px 20px 0" }}>
         <div style={{ fontSize:11, letterSpacing:"0.35em", color:"#f5a623", fontFamily:"'DM Sans',sans-serif", marginBottom:8, textTransform:"uppercase" }}>NTT DATA CONSULTING</div>
         <h1 style={{ fontSize:"clamp(36px,8vw,72px)", fontWeight:900, lineHeight:1, background:"linear-gradient(135deg,#ff6bc1 0%,#f5a623 50%,#ff6bc1 100%)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text", animation:"glow 3s ease-in-out infinite", fontFamily:"'Playfair Display',serif" }}>
-          FantaSanremo
+          FantaCall
         </h1>
         <div style={{ fontSize:14, color:"rgba(255,255,255,.45)", fontFamily:"'DM Sans',sans-serif", marginTop:6 }}>L'edizione interna che nessuno ha chiesto ma tutti aspettavano 🎤</div>
 
-        {/* Nav */}
         <div style={{ display:"flex", gap:8, justifyContent:"center", flexWrap:"wrap", marginTop:22, marginBottom:6 }}>
           {navItems.map(n => (
             <button key={n.id} className={`nav-btn ${n.special==="capitan"?"cap":n.special==="admin"?"adm":""} ${page===n.id?"active":""}`} onClick={() => setPage(n.id)}>{n.label}</button>
@@ -648,89 +1005,13 @@ export default function App() {
         )}
       </div>
 
-      {/* Contenuto */}
       <div style={{ position:"relative", zIndex:1, maxWidth:900, margin:"0 auto", padding:"24px 16px 80px" }}>
 
-        {page==="classifica" && (
-          <ClassificaSection participants={participants} teams={teams} scores={scores} sortedParticipants={sortedParticipants} />
-        )}
+        {page==="classifica" && <ClassificaSection participants={participants} teams={teams} scores={scores} sortedParticipants={sortedParticipants} />}
 
-        {page==="team" && (
-          <div>
-            <div style={{ textAlign:"center", fontSize:28, marginBottom:6, color:"white", fontFamily:"'Playfair Display',serif", fontWeight:700 }}>👥 Classifica Team</div>
-            <div style={{ textAlign:"center", color:"rgba(255,255,255,.4)", fontFamily:"'DM Sans',sans-serif", fontSize:13, marginBottom:28 }}>Il punteggio del team è la somma di tutti i suoi componenti</div>
-            {sortedTeams.length >= 2 && (
-              <div style={{ display:"flex", alignItems:"flex-end", justifyContent:"center", gap:10, marginBottom:32 }}>
-                {[1,0,2].map(rank => {
-                  if (!sortedTeams[rank]) return null;
-                  const team = sortedTeams[rank];
-                  const score = calcTeamScore(team.id, participants, scores);
-                  const emojis = ["🥈","🏆","🥉"];
-                  const labels = ["2° POSTO","1° POSTO","3° POSTO"];
-                  const heights = [70,100,50];
-                  const isFirst = rank===0;
-                  return (
-                    <div key={team.id} style={{ textAlign:"center", flex:1, maxWidth: isFirst?220:190 }}>
-                      <div style={{ fontSize: isFirst?36:26, marginBottom:6, animation: isFirst?"pulse 2s ease-in-out infinite":"none" }}>{emojis[rank]}</div>
-                      <div style={{ background:`linear-gradient(180deg,${team.color}${isFirst?"55":"28"} 0%,rgba(255,255,255,.03) 100%)`, border:`${isFirst?2:1}px solid ${team.color}${isFirst?"":"55"}`, borderRadius:"12px 12px 0 0", padding: isFirst?"18px 14px":"14px 10px", borderBottom:"none", boxShadow: isFirst?`0 0 28px ${team.color}33`:"none" }}>
-                        <div style={{ fontSize:10, color: isFirst?"#f5a623":"rgba(255,255,255,.4)", fontFamily:"'DM Sans',sans-serif", marginBottom:4, letterSpacing:"0.1em" }}>{isFirst?"👑 ":""}{labels[rank]}</div>
-                        <div style={{ color:"white", fontWeight: isFirst?800:700, fontFamily:"'DM Sans',sans-serif", fontSize: isFirst?14:12, marginBottom:8 }}>{team.name}</div>
-                        <div style={{ fontSize: isFirst?28:22, fontWeight:900, color: score>=0?"#2ed573":"#ff4757", fontFamily:"'Playfair Display',serif" }}>{score>0?"+":""}{score}</div>
-                      </div>
-                      <div style={{ height:heights[rank], borderRadius:"0 0 8px 8px", border:`1px solid ${team.color}33`, borderTop:"none", background: isFirst?"rgba(255,215,0,.07)":"rgba(255,255,255,.03)" }} />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {sortedTeams.map((team, i) => {
-              const members = [...participants.filter(p => p.team_id===team.id)].sort((a,b) => calcParticipantScore(b.id,participants,scores)-calcParticipantScore(a.id,participants,scores));
-              const teamScore = calcTeamScore(team.id, participants, scores);
-              const medals = ["🥇","🥈","🥉"];
-              return (
-                <div key={team.id} className="card" style={{ marginBottom:14, borderColor:team.color+"55", borderWidth: i===0?2:1, boxShadow: i===0?`0 0 24px ${team.color}1a`:"none" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14, paddingBottom:14, borderBottom:`1px solid ${team.color}22` }}>
-                    <div style={{ fontSize: i<3?26:18 }}>{i<3?medals[i]:`#${i+1}`}</div>
-                    <div style={{ width:6, height:46, borderRadius:3, background:`linear-gradient(180deg,${team.color},${team.color}44)`, flexShrink:0 }} />
-                    <div style={{ flex:1 }}>
-                      <div style={{ color:"white", fontWeight:800, fontFamily:"'DM Sans',sans-serif", fontSize:16 }}>{team.name}</div>
-                      <div style={{ color:"rgba(255,255,255,.4)", fontSize:12, fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{members.length} partecipant{members.length===1?"e":"i"}</div>
-                    </div>
-                    <div style={{ textAlign:"right" }}>
-                      <div style={{ fontSize:28, fontWeight:900, color: teamScore>=0?"#2ed573":"#ff4757", fontFamily:"'Playfair Display',serif", lineHeight:1 }}>{teamScore>0?"+":""}{teamScore}</div>
-                      <div style={{ fontSize:10, color:"rgba(255,255,255,.3)", fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>punti totali</div>
-                    </div>
-                  </div>
-                  {members.length===0 ? (
-                    <div style={{ color:"rgba(255,255,255,.3)", fontFamily:"'DM Sans',sans-serif", fontSize:13, textAlign:"center" }}>Nessun membro</div>
-                  ) : (
-                    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                      {members.map((p, mi) => {
-                        const ps  = calcParticipantScore(p.id, participants, scores);
-                        const pct = Math.abs(teamScore)>0 ? Math.min(100, Math.abs(ps/Math.abs(teamScore))*100) : 0;
-                        return (
-                          <div key={p.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 12px", borderRadius:8, background:"rgba(255,255,255,.03)", border:"1px solid rgba(255,255,255,.06)" }}>
-                            <div style={{ width:22, height:22, borderRadius:"50%", background: mi===0?`linear-gradient(135deg,${team.color},${team.color}88)`:"rgba(255,255,255,.08)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, color: mi===0?"#0a0015":"rgba(255,255,255,.4)", fontWeight:700, flexShrink:0, fontFamily:"'DM Sans',sans-serif" }}>{mi+1}</div>
-                            <div style={{ flex:1, minWidth:0 }}>
-                              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
-                                <span style={{ color:"rgba(255,255,255,.85)", fontFamily:"'DM Sans',sans-serif", fontSize:13 }}>{p.is_capitan&&"👑 "}{p.name}</span>
-                                {p.is_capitan && <span style={{ fontSize:10, background:"rgba(245,166,35,.2)", border:"1px solid rgba(245,166,35,.4)", color:"#f5a623", borderRadius:4, padding:"1px 5px", fontFamily:"'DM Sans',sans-serif" }}>×2</span>}
-                              </div>
-                              <div style={{ height:3, borderRadius:2, background:"rgba(255,255,255,.08)", overflow:"hidden" }}>
-                                <div style={{ height:"100%", width:pct+"%", background: ps>=0?`linear-gradient(90deg,${team.color},#2ed573)`:"linear-gradient(90deg,#ff4757,#ff6b6b)", borderRadius:2, transition:"width .6s" }} />
-                              </div>
-                            </div>
-                            <div style={{ fontSize:14, fontWeight:700, color: ps>0?"#2ed573":ps<0?"#ff4757":"rgba(255,255,255,.4)", fontFamily:"'Playfair Display',serif", whiteSpace:"nowrap" }}>{ps>0?"+":""}{ps}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {page==="team" && <TeamSection participants={participants} teams={teams} scores={scores} sortedTeams={sortedTeams} />}
+
+        {page==="dashboard" && <DashboardSection participants={participants} teams={teams} scores={scores} exportToExcelFn={exportFn} />}
 
         {page==="regolamento" && (
           <div>
@@ -778,9 +1059,6 @@ export default function App() {
               <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:`${capitanoTeam?.color}1a`, border:`1px solid ${capitanoTeam?.color}55`, borderRadius:20, padding:"6px 18px", fontFamily:"'DM Sans',sans-serif", fontSize:14, color:capitanoTeam?.color }}>
                 {capitanoTeam?.name}
               </div>
-              <div style={{ color:"rgba(255,255,255,.4)", fontFamily:"'DM Sans',sans-serif", fontSize:13, marginTop:12 }}>
-                Inserisci i bonus e malus per i membri del tuo team, giorno per giorno.
-              </div>
             </div>
             <div className="card">
               <ScoringPanel participants={participants} teams={teams} scores={scores} toggleScore={toggleScore} allowedTeamId={capitanoTeamId} selectedDay={selectedDay} setSelectedDay={setSelectedDay} loading={scoreLoading} />
@@ -789,7 +1067,7 @@ export default function App() {
         )}
 
         {page==="admin" && isAdmin && (
-          <AdminPanel participants={participants} teams={teams} scores={scores} toggleScore={toggleScore} reload={reload} selectedDay={selectedDay} setSelectedDay={setSelectedDay} loading={scoreLoading} />
+          <AdminPanel participants={participants} teams={teams} scores={scores} toggleScore={toggleScore} reload={reload} selectedDay={selectedDay} setSelectedDay={setSelectedDay} loading={scoreLoading} exportToExcelFn={exportFn} />
         )}
 
       </div>
